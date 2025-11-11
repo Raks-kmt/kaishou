@@ -1,0 +1,38 @@
+{
+  "name": "Advanced Kuaishou Video Downloader",
+  "description": "Advanced Telegram bot for downloading Kuaishou videos with multiple quality options",
+  "keywords": [
+    "telegram",
+    "bot", 
+    "kuaishou",
+    "video-downloader",
+    "python",
+    "youtube-dl"
+  ],
+  "website": "https://koyeb.com",
+  "repository": "https://github.com/your-username/kuaishou-downloader",
+  "logo": "https://img.icons8.com/color/96/000000/video-playlist.png",
+  "success_url": "/",
+  "env": {
+    "BOT_TOKEN": {
+      "description": "Your Telegram Bot Token from @BotFather",
+      "value": "your_bot_token_here",
+      "required": true
+    }
+  },
+  "formation": {
+    "web": {
+      "quantity": 1,
+      "size": "free"
+    },
+    "worker": {
+      "quantity": 1, 
+      "size": "free"
+    }
+  },
+  "buildpacks": [
+    {
+      "url": "heroku/python"
+    }
+  ]
+}
