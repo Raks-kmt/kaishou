@@ -13,6 +13,7 @@ import requests
 from urllib.parse import urlparse
 import json
 import time
+import shutil
 from typing import Dict, List
 
 # Enable detailed logging
@@ -299,6 +300,21 @@ def is_valid_kuaishou_url(url: str) -> bool:
             return True
     return False
 
+async def cleanup_downloads():
+    """Cleanup old download directories."""
+    try:
+        if os.path.exists('downloads'):
+            for dir_name in os.listdir('downloads'):
+                dir_path = os.path.join('downloads', dir_name)
+                if os.path.isdir(dir_path):
+                    # Remove directories older than 1 hour
+                    dir_time = os.path.getctime(dir_path)
+                    if time.time() - dir_time > 3600:  # 1 hour
+                        shutil.rmtree(dir_path, ignore_errors=True)
+                        logger.info(f"Cleaned up old directory: {dir_path}")
+    except Exception as e:
+        logger.error(f"Cleanup error: {e}")
+
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle incoming messages."""
     user = update.message.from_user
@@ -415,14 +431,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Update user statistics
         user_sessions[user_id]['download_count'] += 1
         
-        # Cleanup
+        # Cleanup downloaded files immediately
         try:
-            os.remove(download_result['filename'])
             download_dir = f"downloads/{download_result['download_id']}"
             if os.path.exists(download_dir):
-                for file in os.listdir(download_dir):
-                    os.remove(os.path.join(download_dir, file))
-                os.rmdir(download_dir)
+                shutil.rmtree(download_dir, ignore_errors=True)
+                logger.info(f"Cleaned up download directory: {download_dir}")
         except Exception as e:
             logger.error(f"Cleanup error: {e}")
         
@@ -464,26 +478,6 @@ async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logger.error(f"Error in error handler: {e}")
 
-async def cleanup_old_downloads():
-    """Cleanup old download directories periodically."""
-    while True:
-        try:
-            if os.path.exists('downloads'):
-                for dir_name in os.listdir('downloads'):
-                    dir_path = os.path.join('downloads', dir_name)
-                    if os.path.isdir(dir_path):
-                        # Remove directories older than 1 hour
-                        dir_time = os.path.getctime(dir_path)
-                        if time.time() - dir_time > 3600:  # 1 hour
-                            for file in os.listdir(dir_path):
-                                os.remove(os.path.join(dir_path, file))
-                            os.rmdir(dir_path)
-                            logger.info(f"Cleaned up old directory: {dir_path}")
-        except Exception as e:
-            logger.error(f"Cleanup error: {e}")
-        
-        await asyncio.sleep(3600)  # Run every hour
-
 def main():
     """Start the bot."""
     if not BOT_TOKEN:
@@ -492,6 +486,9 @@ def main():
     
     # Create necessary directories
     os.makedirs('downloads', exist_ok=True)
+    
+    # Cleanup old downloads on startup
+    asyncio.run(cleanup_downloads())
     
     # Create Application
     application = Application.builder().token(BOT_TOKEN).build()
@@ -512,13 +509,6 @@ def main():
     
     # Add error handler
     application.add_error_handler(error_handler)
-    
-    # Start cleanup task
-    application.job_queue.run_repeating(
-        lambda context: asyncio.create_task(cleanup_old_downloads()),
-        interval=3600,  # 1 hour
-        first=10
-    )
     
     # Start the Bot
     logger.info("🤖 Advanced Kuaishou Video Downloader Bot Starting...")
