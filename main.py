@@ -14,6 +14,7 @@ from urllib.parse import urlparse
 import json
 import time
 import shutil
+import random
 from typing import Dict, List
 
 # Enable detailed logging
@@ -37,6 +38,14 @@ user_sessions: Dict[int, Dict] = {}
 
 class KuaishouDownloader:
     def __init__(self):
+        self.user_agents = [
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36',
+            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/121.0',
+            'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        ]
+        
         self.ydl_opts = {
             'format': 'best[height<=1080]',
             'outtmpl': 'downloads/%(title).100s.%(ext)s',
@@ -45,34 +54,52 @@ class KuaishouDownloader:
             'writethumbnail': True,
             'embedthumbnail': True,
             'consoletitle': True,
+            'retries': 3,
+            'fragment_retries': 3,
+            'skip_unavailable_fragments': True,
+            'continuedl': True,
             'http_headers': {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-                'Accept-Language': 'en-us,en;q=0.5',
-                'Accept-Encoding': 'gzip,deflate',
-                'Accept-Charset': 'ISO-8859-1,utf-8;q=0.7,*;q=0.7',
+                'User-Agent': random.choice(self.user_agents),
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
+                'Accept-Language': 'en-US,en;q=0.9,hi;q=0.8',
+                'Accept-Encoding': 'gzip, deflate, br',
+                'Cache-Control': 'no-cache',
                 'Connection': 'keep-alive',
+                'Upgrade-Insecure-Requests': '1',
+                'Sec-Fetch-Dest': 'document',
+                'Sec-Fetch-Mode': 'navigate',
+                'Sec-Fetch-Site': 'none',
+                'Sec-Fetch-User': '?1',
             }
         }
     
     def get_video_info(self, url: str) -> Dict:
         """Get video information without downloading"""
-        try:
-            with yt_dlp.YoutubeDL({'quiet': True}) as ydl:
-                info = ydl.extract_info(url, download=False)
-                return {
-                    'success': True,
-                    'title': info.get('title', 'Kuaishou Video'),
-                    'duration': info.get('duration', 0),
-                    'thumbnail': info.get('thumbnail', ''),
-                    'view_count': info.get('view_count', 0),
-                    'uploader': info.get('uploader', 'Unknown'),
-                    'formats': info.get('formats', []),
-                    'description': info.get('description', '')[:500]
-                }
-        except Exception as e:
-            logger.error(f"Video info error: {e}")
-            return {'success': False, 'error': str(e)}
+        max_retries = 2
+        for attempt in range(max_retries):
+            try:
+                # Rotate user agent for each attempt
+                self.ydl_opts['http_headers']['User-Agent'] = random.choice(self.user_agents)
+                
+                with yt_dlp.YoutubeDL({'quiet': True, 'http_headers': self.ydl_opts['http_headers']}) as ydl:
+                    info = ydl.extract_info(url, download=False)
+                    return {
+                        'success': True,
+                        'title': info.get('title', 'Kuaishou Video'),
+                        'duration': info.get('duration', 0),
+                        'thumbnail': info.get('thumbnail', ''),
+                        'view_count': info.get('view_count', 0),
+                        'uploader': info.get('uploader', 'Unknown'),
+                        'formats': info.get('formats', []),
+                        'description': info.get('description', '')[:500]
+                    }
+            except Exception as e:
+                logger.error(f"Video info error (attempt {attempt + 1}): {e}")
+                if attempt < max_retries - 1:
+                    wait_time = (attempt + 1) * 2  # 2, 4 seconds
+                    time.sleep(wait_time)
+                    continue
+                return {'success': False, 'error': str(e)}
     
     def download_video(self, url: str, quality: str = 'best') -> Dict:
         """Download video with specified quality"""
@@ -94,28 +121,38 @@ class KuaishouDownloader:
         
         self.ydl_opts['format'] = format_spec
         self.ydl_opts['outtmpl'] = f'{download_dir}/%(title).100s.%(ext)s'
+        self.ydl_opts['http_headers']['User-Agent'] = random.choice(self.user_agents)
         
-        try:
-            with yt_dlp.YoutubeDL(self.ydl_opts) as ydl:
-                info = ydl.extract_info(url, download=True)
-                filename = ydl.prepare_filename(info)
-                
-                # Check file size
-                file_size = os.path.getsize(filename) if os.path.exists(filename) else 0
-                
-                return {
-                    'success': True,
-                    'filename': filename,
-                    'title': info.get('title', 'Kuaishou Video'),
-                    'duration': info.get('duration', 0),
-                    'quality': quality,
-                    'file_size': file_size,
-                    'download_id': download_id
-                }
-                
-        except Exception as e:
-            logger.error(f"Download error: {e}")
-            return {'success': False, 'error': str(e)}
+        max_retries = 2
+        for attempt in range(max_retries):
+            try:
+                with yt_dlp.YoutubeDL(self.ydl_opts) as ydl:
+                    info = ydl.extract_info(url, download=True)
+                    filename = ydl.prepare_filename(info)
+                    
+                    # Check file size
+                    file_size = os.path.getsize(filename) if os.path.exists(filename) else 0
+                    
+                    return {
+                        'success': True,
+                        'filename': filename,
+                        'title': info.get('title', 'Kuaishou Video'),
+                        'duration': info.get('duration', 0),
+                        'quality': quality,
+                        'file_size': file_size,
+                        'download_id': download_id
+                    }
+                    
+            except Exception as e:
+                logger.error(f"Download error (attempt {attempt + 1}): {e}")
+                if attempt < max_retries - 1:
+                    wait_time = (attempt + 1) * 3  # 3, 6 seconds
+                    time.sleep(wait_time)
+                    # Cleanup failed download directory
+                    if os.path.exists(download_dir):
+                        shutil.rmtree(download_dir, ignore_errors=True)
+                    continue
+                return {'success': False, 'error': str(e)}
 
 # Initialize downloader
 downloader = KuaishouDownloader()
@@ -200,6 +237,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 • Internet connection strong hona chahiye
 • Video publicly available hona chahiye
 • Sirf individual video links kaam karte hain
+• Kabhi kabhi server issue ho sakta hai, thodi der baad try karein
 
 📞 **Support:**
 Agar koi problem ho to directly video link bhej kar try karein!
@@ -461,7 +499,19 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not video_info.get('success'):
             error_msg = video_info.get('error', 'Unknown error')
             
-            if 'Unsupported URL' in error_msg or 'No video formats found' in error_msg:
+            # Handle specific connection errors
+            if 'Connection aborted' in error_msg or 'Connection reset' in error_msg or 'TransportError' in error_msg:
+                await processing_msg.edit_text(
+                    "❌ **Connection Error!**\n\n"
+                    "Kuaishou server se connect nahi ho pa raha.\n\n"
+                    "🔧 **Possible Solutions:**\n"
+                    "• Thodi der baad phir try karein\n"
+                    "• Different video ka link try karein\n"
+                    "• VPN use karein (agar available ho)\n"
+                    "• Internet connection check karein\n\n"
+                    "⚠️ Yeh temporary server issue hai, usually 5-10 minute mein theek ho jata hai."
+                )
+            elif 'Unsupported URL' in error_msg or 'No video formats found' in error_msg:
                 await processing_msg.edit_text(
                     "❌ **Yeh Video Link Nahi Hai!**\n\n"
                     "Link mein koi video nahi mili.\n\n"
@@ -501,14 +551,26 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         download_result = downloader.download_video(message_text, user_quality)
         
         if not download_result.get('success'):
-            await processing_msg.edit_text(
-                "❌ **Download Failed!**\n\n"
-                f"Error: {download_result.get('error', 'Unknown error')}\n\n"
-                "Kripya:\n"
-                "• Different link try karein\n"
-                "• Thodi der baad try karein\n"
-                "• Internet connection check karein"
-            )
+            error_msg = download_result.get('error', 'Unknown error')
+            if 'Connection aborted' in error_msg or 'Connection reset' in error_msg:
+                await processing_msg.edit_text(
+                    "❌ **Download Failed - Connection Issue!**\n\n"
+                    "Video download karte waqt connection break ho gaya.\n\n"
+                    "🔄 **Please Try:**\n"
+                    "• 2-3 minute wait karein\n"
+                    "• Phir same link bhej kar try karein\n"
+                    "• Agar fir bhi na ho to different video try karein\n\n"
+                    "🌐 Server side temporary issue hai, jald hi theek ho jayega."
+                )
+            else:
+                await processing_msg.edit_text(
+                    "❌ **Download Failed!**\n\n"
+                    f"Error: {error_msg}\n\n"
+                    "Kripya:\n"
+                    "• Different link try karein\n"
+                    "• Thodi der baad try karein\n"
+                    "• Internet connection check karein"
+                )
             return
         
         # Step 3: Send video to user
