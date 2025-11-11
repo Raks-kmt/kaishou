@@ -1,0 +1,24 @@
+name: kuaishou-downloader-bot
+services:
+  - name: app
+    ports:
+      - port: 8080
+        protocol: http
+    env:
+      - name: BOT_TOKEN
+        secret: true
+    scaler:
+      min: 1
+      max: 1
+      budget: 1
+    health:
+      http:
+        path: /
+        port: 8080
+      initial_delay: 30s
+      period: 60s
+      timeout: 10s
+    instance:
+      type: nano
+    build:
+      type: dockerfile
