@@ -154,13 +154,19 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 • `ksy://...`
 • Aur sabhi Kuaishou links
 
+⚠️ **Important:**
+• Sirf individual video links kaam karte hain
+• Homepage/feed links kaam nahi karte
+• Video publicly available hona chahiye
+
 ⚙ **Commands:**
 • /start - Bot start karein
 • /help - Help dekhein
 • /quality - Video quality set karein
 • /stats - Apna statistics dekhein
+• /tutorial - Video download kaise karein
 
-🚀 **Abhi koi bhi Kuaishou link bhej kar try karein!**
+🚀 **Abhi koi bhi Kuaishou video link bhej kar try karein!**
 """
     
     await update.message.reply_text(welcome_text)
@@ -187,17 +193,58 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 • /quality - Video quality change karein
 • /stats - Apne downloads dekhein
 • /help - Yeh message dikhayein
+• /tutorial - Step-by-step guide
 
 🔧 **Troubleshooting:**
 • Agar video download na ho to different link try karein
 • Internet connection strong hona chahiye
 • Video publicly available hona chahiye
+• Sirf individual video links kaam karte hain
 
 📞 **Support:**
-Agar koi problem ho to directly link bhej kar try karein!
+Agar koi problem ho to directly video link bhej kar try karein!
 """
     
     await update.message.reply_text(help_text)
+
+async def tutorial_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Send tutorial message."""
+    tutorial_text = """
+📹 **Step-by-Step Tutorial**
+
+🎯 **Sahi Video Link Kaise Lein:**
+
+1. **Kuaishou App Kholain**
+   - Kuaishou app open karein
+   - Koi bhi video play karein
+
+2. **Share Button Dabain**
+   - Video ke right side mein share button hai
+   - Share icon (↗️) par click karein
+
+3. **Copy Link Select Karein**
+   - Share options mein "Copy Link" choose karein
+   - Link automatically copy ho jayega
+
+4. **Yahan Paste Karein**
+   - Yahan woh link paste karein
+   - Video download start ho jayega
+
+⚠️ **Common Mistakes:**
+- ❌ Homepage link (www.kuaishou.com) - Kaam nahi karega
+- ❌ Profile link - Kaam nahi karega  
+- ❌ Feed link - Kaam nahi karega
+- ✅ Individual video link - Kaam karega
+
+🔍 **Example of Working Links:**
+- `https://v.kuaishou.com/AbC123XyZ`
+- `https://www.kuaishou.com/short-video/123456789`
+- `ksy://video/123456789`
+
+🚀 **Abhi koi video open karke try karein!**
+"""
+    
+    await update.message.reply_text(tutorial_text)
 
 async def quality_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Set video quality preference."""
@@ -294,11 +341,42 @@ def is_valid_kuaishou_url(url: str) -> bool:
         r'kuaishouapp\.com/\w+'
     ]
     
+    # Block homepage and non-video URLs
+    blocked_patterns = [
+        r'https?://www\.kuaishou\.com/?$',
+        r'https?://www\.kuaishou\.com/new-reco',
+        r'https?://www\.kuaishou\.com/explore',
+        r'https?://www\.kuaishou\.com/profile',
+        r'https?://www\.kuaishou\.com/following',
+        r'https?://www\.kuaishou\.com/$'
+    ]
+    
     url = url.strip()
+    
+    # Check if URL is blocked
+    for pattern in blocked_patterns:
+        if re.match(pattern, url, re.IGNORECASE):
+            return False
+    
+    # Check if URL is valid Kuaishou URL
     for pattern in kuaishou_patterns:
         if re.match(pattern, url, re.IGNORECASE):
             return True
     return False
+
+def is_video_url(url: str) -> bool:
+    """Check if the URL is likely a video URL."""
+    video_indicators = [
+        '/short-video/',
+        '/video/',
+        'v.kuaishou.com',
+        'ksy://video',
+        'photoId=',
+        'fid='
+    ]
+    
+    url = url.lower()
+    return any(indicator in url for indicator in video_indicators)
 
 async def cleanup_downloads():
     """Cleanup old download directories."""
@@ -335,13 +413,32 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Check if message is a Kuaishou URL
     if not is_valid_kuaishou_url(message_text):
         await update.message.reply_text(
-            "❌ **Invalid Kuaishou Link!**\n\n"
-            "Kripya sahi Kuaishou video link bhejein.\n\n"
-            "📝 **Examples of Valid Links:**\n"
+            "❌ **Invalid Kuaishou Video Link!**\n\n"
+            "Kripya sahi Kuaishou **VIDEO** link bhejein.\n\n"
+            "⚠️ **Ye Links Kaam Nahi Karte:**\n"
+            "• Kuaishou homepage (www.kuaishou.com)\n" 
+            "• Profile links\n"
+            "• Feed/recommendation links\n\n"
+            "📝 **Examples of Working Links:**\n"
             "• `https://v.kuaishou.com/KybGvmoV`\n"
-            "• `v.kuaishou.com/ABC123`\n"
+            "• `https://www.kuaishou.com/short-video/123456789`\n"
             "• `ksy://video123`\n\n"
+            "📹 **Step-by-step guide ke liye /tutorial type karein**\n\n"
             "Kuaishou app mein share button se 'Copy Link' karein."
+        )
+        return
+    
+    # Additional check for video URLs
+    if not is_video_url(message_text):
+        await update.message.reply_text(
+            "❌ **Yeh Video Link Nahi Hai!**\n\n"
+            "Aapne Kuaishou ki homepage, profile ya feed link bheji hai.\n\n"
+            "🎯 **Sahi Video Link Kaise Lein:**\n"
+            "1. Kuaishou app mein koi video kholain\n"
+            "2. Share button (↗️) dabain\n" 
+            "3. 'Copy Link' select karein\n"
+            "4. Yahan paste karein\n\n"
+            "📹 Detailed guide ke liye /tutorial type karein"
         )
         return
     
@@ -362,15 +459,31 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         video_info = downloader.get_video_info(message_text)
         if not video_info.get('success'):
-            await processing_msg.edit_text(
-                "❌ **Video Access Failed!**\n\n"
-                "Possible Reasons:\n"
-                "• Video private ya deleted hai\n"
-                "• Link invalid hai\n"
-                "• Regional restriction hai\n"
-                "• Network issue hai\n\n"
-                "Kripya different video ka link try karein."
-            )
+            error_msg = video_info.get('error', 'Unknown error')
+            
+            if 'Unsupported URL' in error_msg or 'No video formats found' in error_msg:
+                await processing_msg.edit_text(
+                    "❌ **Yeh Video Link Nahi Hai!**\n\n"
+                    "Link mein koi video nahi mili.\n\n"
+                    "🤔 **Possible Reasons:**\n"
+                    "• Aapne homepage/feed link bheja hai\n"
+                    "• Video private ya deleted hai\n"
+                    "• Link invalid hai\n\n"
+                    "🎯 **Solution:**\n"
+                    "1. Kuaishou app mein koi specific video open karein\n"
+                    "2. Share → Copy Link karein\n"
+                    "3. Woh link yahan paste karein\n\n"
+                    "📹 Agar confusion hai to /tutorial dekhein"
+                )
+            else:
+                await processing_msg.edit_text(
+                    "❌ **Video Access Failed!**\n\n"
+                    f"Error: {error_msg}\n\n"
+                    "Kripya:\n"
+                    "• Different video ka link try karein\n"
+                    "• Thodi der baad try karein\n"
+                    "• Internet connection check karein"
+                )
             return
         
         # Step 2: Start download with user's preferred quality
@@ -496,6 +609,7 @@ def main():
     # Add command handlers
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("help", help_command))
+    application.add_handler(CommandHandler("tutorial", tutorial_command))
     application.add_handler(CommandHandler("quality", quality_command))
     application.add_handler(CommandHandler("stats", stats_command))
     application.add_handler(CommandHandler("set_quality_best", set_quality_best))
