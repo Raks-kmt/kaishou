@@ -10,7 +10,7 @@ from telegram import Update, InputFile
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, CallbackContext
 import yt_dlp
 import requests
-from urllib.parse import urlparse
+from urllib.parse import urlparse, parse_qs
 import json
 import time
 import shutil
@@ -39,29 +39,30 @@ user_sessions: Dict[int, Dict] = {}
 class KuaishouDownloader:
     def __init__(self):
         self.user_agents = [
-            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36',
-            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/121.0',
-            'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1',
+            'Mozilla/5.0 (Linux; Android 13; SM-G991B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/112.0.0.0 Mobile Safari/537.36',
+            'Mozilla/5.0 (Linux; Android 13; SM-G998B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/112.0.0.0 Mobile Safari/537.36',
+            'Mozilla/5.0 (Linux; Android 12; SM-G973F) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/112.0.0.0 Mobile Safari/537.36',
+            'Mozilla/5.0 (iPhone; CPU iPhone OS 16_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.5 Mobile/15E148 Safari/604.1',
         ]
         
         self.ydl_opts = {
             'format': 'best[height<=1080]',
             'outtmpl': 'downloads/%(title).100s.%(ext)s',
-            'quiet': False,
+            'quiet': True,
             'no_warnings': False,
-            'writethumbnail': True,
-            'embedthumbnail': True,
-            'consoletitle': True,
-            'retries': 3,
-            'fragment_retries': 3,
+            'writethumbnail': False,
+            'embedthumbnail': False,
+            'consoletitle': False,
+            'retries': 10,
+            'fragment_retries': 10,
             'skip_unavailable_fragments': True,
             'continuedl': True,
+            'no_check_certificate': True,
             'http_headers': {
                 'User-Agent': random.choice(self.user_agents),
                 'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
-                'Accept-Language': 'en-US,en;q=0.9,hi;q=0.8',
+                'Accept-Language': 'en-US,en;q=0.9,zh-CN;q=0.8,zh;q=0.7',
                 'Accept-Encoding': 'gzip, deflate, br',
                 'Cache-Control': 'no-cache',
                 'Connection': 'keep-alive',
@@ -70,19 +71,63 @@ class KuaishouDownloader:
                 'Sec-Fetch-Mode': 'navigate',
                 'Sec-Fetch-Site': 'none',
                 'Sec-Fetch-User': '?1',
+                'DNT': '1',
             }
         }
-    
+
+    def clean_kuaishou_url(self, url: str) -> str:
+        """Clean Kuaishou URL by removing tracking parameters"""
+        try:
+            parsed = urlparse(url)
+            
+            # Keep only essential parameters for Kuaishou
+            essential_params = ['photoId', 'fid', 'userId', 'shareObjectId']
+            query_params = parse_qs(parsed.query)
+            cleaned_params = {}
+            
+            for param in essential_params:
+                if param in query_params:
+                    cleaned_params[param] = query_params[param][0]
+            
+            # Reconstruct URL without tracking parameters
+            if cleaned_params:
+                new_query = '&'.join([f"{k}={v}" for k, v in cleaned_params.items()])
+                cleaned_url = f"{parsed.scheme}://{parsed.netloc}{parsed.path}?{new_query}"
+            else:
+                cleaned_url = f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
+            
+            logger.info(f"Cleaned URL: {cleaned_url}")
+            return cleaned_url
+            
+        except Exception as e:
+            logger.error(f"URL cleaning error: {e}")
+            return url
+
     def get_video_info(self, url: str) -> Dict:
         """Get video information without downloading"""
-        max_retries = 2
+        max_retries = 3
+        cleaned_url = self.clean_kuaishou_url(url)
+        
         for attempt in range(max_retries):
             try:
                 # Rotate user agent for each attempt
-                self.ydl_opts['http_headers']['User-Agent'] = random.choice(self.user_agents)
+                current_headers = self.ydl_opts['http_headers'].copy()
+                current_headers['User-Agent'] = random.choice(self.user_agents)
                 
-                with yt_dlp.YoutubeDL({'quiet': True, 'http_headers': self.ydl_opts['http_headers']}) as ydl:
-                    info = ydl.extract_info(url, download=False)
+                ydl_info_opts = {
+                    'quiet': True,
+                    'no_warnings': False,
+                    'http_headers': current_headers,
+                    'retries': 3,
+                    'fragment_retries': 3,
+                    'skip_unavailable_fragments': True,
+                    'no_check_certificate': True,
+                }
+                
+                with yt_dlp.YoutubeDL(ydl_info_opts) as ydl:
+                    info = ydl.extract_info(cleaned_url, download=False)
+                    
+                    # If we get here, the video info was successfully extracted
                     return {
                         'success': True,
                         'title': info.get('title', 'Kuaishou Video'),
@@ -91,12 +136,38 @@ class KuaishouDownloader:
                         'view_count': info.get('view_count', 0),
                         'uploader': info.get('uploader', 'Unknown'),
                         'formats': info.get('formats', []),
-                        'description': info.get('description', '')[:500]
+                        'description': info.get('description', '')[:500],
+                        'url': cleaned_url
                     }
-            except Exception as e:
-                logger.error(f"Video info error (attempt {attempt + 1}): {e}")
+                    
+            except yt_dlp.utils.DownloadError as e:
+                logger.error(f"DownloadError in video info (attempt {attempt + 1}): {str(e)}")
+                if "Unsupported URL" in str(e):
+                    # Try with original URL if cleaned URL fails
+                    if attempt == 0 and cleaned_url != url:
+                        logger.info("Trying with original URL...")
+                        continue
+                    
+                    # Try with mobile user agent
+                    if attempt == 1:
+                        logger.info("Trying with mobile user agent...")
+                        mobile_agents = [
+                            'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1',
+                            'Mozilla/5.0 (Linux; Android 13; SM-G991B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/112.0.0.0 Mobile Safari/537.36'
+                        ]
+                        current_headers['User-Agent'] = random.choice(mobile_agents)
+                        continue
+                
                 if attempt < max_retries - 1:
-                    wait_time = (attempt + 1) * 2  # 2, 4 seconds
+                    wait_time = (attempt + 1) * 3
+                    time.sleep(wait_time)
+                    continue
+                return {'success': False, 'error': str(e)}
+                
+            except Exception as e:
+                logger.error(f"Unexpected error in video info (attempt {attempt + 1}): {e}")
+                if attempt < max_retries - 1:
+                    wait_time = (attempt + 1) * 3
                     time.sleep(wait_time)
                     continue
                 return {'success': False, 'error': str(e)}
@@ -123,11 +194,13 @@ class KuaishouDownloader:
         self.ydl_opts['outtmpl'] = f'{download_dir}/%(title).100s.%(ext)s'
         self.ydl_opts['http_headers']['User-Agent'] = random.choice(self.user_agents)
         
-        max_retries = 2
+        max_retries = 3
+        cleaned_url = self.clean_kuaishou_url(url)
+        
         for attempt in range(max_retries):
             try:
                 with yt_dlp.YoutubeDL(self.ydl_opts) as ydl:
-                    info = ydl.extract_info(url, download=True)
+                    info = ydl.extract_info(cleaned_url, download=True)
                     filename = ydl.prepare_filename(info)
                     
                     # Check file size
@@ -145,13 +218,21 @@ class KuaishouDownloader:
                     
             except Exception as e:
                 logger.error(f"Download error (attempt {attempt + 1}): {e}")
+                
+                # Cleanup failed download directory
+                if os.path.exists(download_dir):
+                    shutil.rmtree(download_dir, ignore_errors=True)
+                
                 if attempt < max_retries - 1:
-                    wait_time = (attempt + 1) * 3  # 3, 6 seconds
+                    wait_time = (attempt + 1) * 5
                     time.sleep(wait_time)
-                    # Cleanup failed download directory
-                    if os.path.exists(download_dir):
-                        shutil.rmtree(download_dir, ignore_errors=True)
+                    
+                    # Try with original URL if cleaned URL fails
+                    if attempt == 1 and cleaned_url != url:
+                        logger.info("Retrying with original URL...")
+                        cleaned_url = url
                     continue
+                    
                 return {'success': False, 'error': str(e)}
 
 # Initialize downloader
@@ -191,19 +272,13 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 • `ksy://...`
 • Aur sabhi Kuaishou links
 
-⚠️ **Important:**
-• Sirf individual video links kaam karte hain
-• Homepage/feed links kaam nahi karte
-• Video publicly available hona chahiye
-
 ⚙ **Commands:**
 • /start - Bot start karein
 • /help - Help dekhein
 • /quality - Video quality set karein
 • /stats - Apna statistics dekhein
-• /tutorial - Video download kaise karein
 
-🚀 **Abhi koi bhi Kuaishou video link bhej kar try karein!**
+🚀 **Abhi koi bhi Kuaishou link bhej kar try karein!**
 """
     
     await update.message.reply_text(welcome_text)
@@ -230,59 +305,17 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 • /quality - Video quality change karein
 • /stats - Apne downloads dekhein
 • /help - Yeh message dikhayein
-• /tutorial - Step-by-step guide
 
 🔧 **Troubleshooting:**
 • Agar video download na ho to different link try karein
 • Internet connection strong hona chahiye
 • Video publicly available hona chahiye
-• Sirf individual video links kaam karte hain
-• Kabhi kabhi server issue ho sakta hai, thodi der baad try karein
 
 📞 **Support:**
-Agar koi problem ho to directly video link bhej kar try karein!
+Agar koi problem ho to directly link bhej kar try karein!
 """
     
     await update.message.reply_text(help_text)
-
-async def tutorial_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Send tutorial message."""
-    tutorial_text = """
-📹 **Step-by-Step Tutorial**
-
-🎯 **Sahi Video Link Kaise Lein:**
-
-1. **Kuaishou App Kholain**
-   - Kuaishou app open karein
-   - Koi bhi video play karein
-
-2. **Share Button Dabain**
-   - Video ke right side mein share button hai
-   - Share icon (↗️) par click karein
-
-3. **Copy Link Select Karein**
-   - Share options mein "Copy Link" choose karein
-   - Link automatically copy ho jayega
-
-4. **Yahan Paste Karein**
-   - Yahan woh link paste karein
-   - Video download start ho jayega
-
-⚠️ **Common Mistakes:**
-- ❌ Homepage link (www.kuaishou.com) - Kaam nahi karega
-- ❌ Profile link - Kaam nahi karega  
-- ❌ Feed link - Kaam nahi karega
-- ✅ Individual video link - Kaam karega
-
-🔍 **Example of Working Links:**
-- `https://v.kuaishou.com/AbC123XyZ`
-- `https://www.kuaishou.com/short-video/123456789`
-- `ksy://video/123456789`
-
-🚀 **Abhi koi video open karke try karein!**
-"""
-    
-    await update.message.reply_text(tutorial_text)
 
 async def quality_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Set video quality preference."""
@@ -379,42 +412,11 @@ def is_valid_kuaishou_url(url: str) -> bool:
         r'kuaishouapp\.com/\w+'
     ]
     
-    # Block homepage and non-video URLs
-    blocked_patterns = [
-        r'https?://www\.kuaishou\.com/?$',
-        r'https?://www\.kuaishou\.com/new-reco',
-        r'https?://www\.kuaishou\.com/explore',
-        r'https?://www\.kuaishou\.com/profile',
-        r'https?://www\.kuaishou\.com/following',
-        r'https?://www\.kuaishou\.com/$'
-    ]
-    
     url = url.strip()
-    
-    # Check if URL is blocked
-    for pattern in blocked_patterns:
-        if re.match(pattern, url, re.IGNORECASE):
-            return False
-    
-    # Check if URL is valid Kuaishou URL
     for pattern in kuaishou_patterns:
         if re.match(pattern, url, re.IGNORECASE):
             return True
     return False
-
-def is_video_url(url: str) -> bool:
-    """Check if the URL is likely a video URL."""
-    video_indicators = [
-        '/short-video/',
-        '/video/',
-        'v.kuaishou.com',
-        'ksy://video',
-        'photoId=',
-        'fid='
-    ]
-    
-    url = url.lower()
-    return any(indicator in url for indicator in video_indicators)
 
 async def cleanup_downloads():
     """Cleanup old download directories."""
@@ -451,32 +453,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Check if message is a Kuaishou URL
     if not is_valid_kuaishou_url(message_text):
         await update.message.reply_text(
-            "❌ **Invalid Kuaishou Video Link!**\n\n"
-            "Kripya sahi Kuaishou **VIDEO** link bhejein.\n\n"
-            "⚠️ **Ye Links Kaam Nahi Karte:**\n"
-            "• Kuaishou homepage (www.kuaishou.com)\n" 
-            "• Profile links\n"
-            "• Feed/recommendation links\n\n"
-            "📝 **Examples of Working Links:**\n"
+            "❌ **Invalid Kuaishou Link!**\n\n"
+            "Kripya sahi Kuaishou video link bhejein.\n\n"
+            "📝 **Examples of Valid Links:**\n"
             "• `https://v.kuaishou.com/KybGvmoV`\n"
-            "• `https://www.kuaishou.com/short-video/123456789`\n"
+            "• `v.kuaishou.com/ABC123`\n"
             "• `ksy://video123`\n\n"
-            "📹 **Step-by-step guide ke liye /tutorial type karein**\n\n"
             "Kuaishou app mein share button se 'Copy Link' karein."
-        )
-        return
-    
-    # Additional check for video URLs
-    if not is_video_url(message_text):
-        await update.message.reply_text(
-            "❌ **Yeh Video Link Nahi Hai!**\n\n"
-            "Aapne Kuaishou ki homepage, profile ya feed link bheji hai.\n\n"
-            "🎯 **Sahi Video Link Kaise Lein:**\n"
-            "1. Kuaishou app mein koi video kholain\n"
-            "2. Share button (↗️) dabain\n" 
-            "3. 'Copy Link' select karein\n"
-            "4. Yahan paste karein\n\n"
-            "📹 Detailed guide ke liye /tutorial type karein"
         )
         return
     
@@ -499,31 +482,15 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not video_info.get('success'):
             error_msg = video_info.get('error', 'Unknown error')
             
-            # Handle specific connection errors
-            if 'Connection aborted' in error_msg or 'Connection reset' in error_msg or 'TransportError' in error_msg:
+            if 'Unsupported URL' in error_msg:
                 await processing_msg.edit_text(
-                    "❌ **Connection Error!**\n\n"
-                    "Kuaishou server se connect nahi ho pa raha.\n\n"
-                    "🔧 **Possible Solutions:**\n"
-                    "• Thodi der baad phir try karein\n"
+                    "❌ **Kuaishou Blocking Detected!**\n\n"
+                    "Kuaishou ne is link ko temporarily block kar diya hai.\n\n"
+                    "🔄 **Please Try:**\n"
+                    "• 5-10 minute wait karein\n"
                     "• Different video ka link try karein\n"
-                    "• VPN use karein (agar available ho)\n"
-                    "• Internet connection check karein\n\n"
-                    "⚠️ Yeh temporary server issue hai, usually 5-10 minute mein theek ho jata hai."
-                )
-            elif 'Unsupported URL' in error_msg or 'No video formats found' in error_msg:
-                await processing_msg.edit_text(
-                    "❌ **Yeh Video Link Nahi Hai!**\n\n"
-                    "Link mein koi video nahi mili.\n\n"
-                    "🤔 **Possible Reasons:**\n"
-                    "• Aapne homepage/feed link bheja hai\n"
-                    "• Video private ya deleted hai\n"
-                    "• Link invalid hai\n\n"
-                    "🎯 **Solution:**\n"
-                    "1. Kuaishou app mein koi specific video open karein\n"
-                    "2. Share → Copy Link karein\n"
-                    "3. Woh link yahan paste karein\n\n"
-                    "📹 Agar confusion hai to /tutorial dekhein"
+                    "• Koi aur Kuaishou video share karein\n\n"
+                    "⚠️ Yeh temporary issue hai, jald hi fix ho jayega."
                 )
             else:
                 await processing_msg.edit_text(
@@ -551,26 +518,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         download_result = downloader.download_video(message_text, user_quality)
         
         if not download_result.get('success'):
-            error_msg = download_result.get('error', 'Unknown error')
-            if 'Connection aborted' in error_msg or 'Connection reset' in error_msg:
-                await processing_msg.edit_text(
-                    "❌ **Download Failed - Connection Issue!**\n\n"
-                    "Video download karte waqt connection break ho gaya.\n\n"
-                    "🔄 **Please Try:**\n"
-                    "• 2-3 minute wait karein\n"
-                    "• Phir same link bhej kar try karein\n"
-                    "• Agar fir bhi na ho to different video try karein\n\n"
-                    "🌐 Server side temporary issue hai, jald hi theek ho jayega."
-                )
-            else:
-                await processing_msg.edit_text(
-                    "❌ **Download Failed!**\n\n"
-                    f"Error: {error_msg}\n\n"
-                    "Kripya:\n"
-                    "• Different link try karein\n"
-                    "• Thodi der baad try karein\n"
-                    "• Internet connection check karein"
-                )
+            await processing_msg.edit_text(
+                "❌ **Download Failed!**\n\n"
+                f"Error: {download_result.get('error', 'Unknown error')}\n\n"
+                "Kripya:\n"
+                "• Different link try karein\n"
+                "• Thodi der baad try karein\n"
+                "• Internet connection check karein"
+            )
             return
         
         # Step 3: Send video to user
@@ -671,7 +626,6 @@ def main():
     # Add command handlers
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("help", help_command))
-    application.add_handler(CommandHandler("tutorial", tutorial_command))
     application.add_handler(CommandHandler("quality", quality_command))
     application.add_handler(CommandHandler("stats", stats_command))
     application.add_handler(CommandHandler("set_quality_best", set_quality_best))
