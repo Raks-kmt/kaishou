@@ -48,7 +48,20 @@ class KuaishouDownloader:
             'Mozilla/5.0 (Linux; U; Android 11; en-US; SM-A205F Build/RP1A.200720.012) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/78.0.3904.108 UCBrowser/13.1.0.1300 Mobile Safari/537.36'
         ]
         
-        self.session = aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=30))
+        # Session ko initialize nahi karenge yahan, baad mein banayenge
+        self.session = None
+
+    async def get_session(self):
+        """Lazy initialization of aiohttp session"""
+        if self.session is None:
+            self.session = aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=30))
+        return self.session
+
+    async def close_session(self):
+        """Close the aiohttp session"""
+        if self.session:
+            await self.session.close()
+            self.session = None
 
     def extract_photo_id(self, url: str) -> str:
         """Extract photo ID from various Kuaishou URL formats"""
@@ -103,6 +116,8 @@ class KuaishouDownloader:
             photo_id = self.extract_photo_id(url)
             logger.info(f"Extracted photo ID: {photo_id}")
             
+            session = await self.get_session()
+            
             # Method 1: Try mobile API endpoint
             api_url = f"https://v.m.chenzhongtech.com/rest/wd/photo/info?photoId={photo_id}"
             
@@ -118,7 +133,7 @@ class KuaishouDownloader:
                 'Sec-Fetch-Site': 'same-site'
             }
             
-            async with self.session.get(api_url, headers=headers) as response:
+            async with session.get(api_url, headers=headers) as response:
                 if response.status == 200:
                     data = await response.json()
                     if data.get('data'):
@@ -136,7 +151,7 @@ class KuaishouDownloader:
             
             # Method 2: Try alternative API
             alt_api_url = f"https://api.ksycloud.com/photo/info?photoId={photo_id}"
-            async with self.session.get(alt_api_url, headers=headers) as response:
+            async with session.get(alt_api_url, headers=headers) as response:
                 if response.status == 200:
                     data = await response.json()
                     if data.get('data'):
@@ -162,6 +177,7 @@ class KuaishouDownloader:
         """Alternative method using web scraping simulation"""
         try:
             photo_id = self.extract_photo_id(url)
+            session = await self.get_session()
             
             # Simulate mobile app request
             mobile_headers = {
@@ -178,7 +194,7 @@ class KuaishouDownloader:
             }
             
             # Try to get page content
-            async with self.session.get(url, headers=mobile_headers) as response:
+            async with session.get(url, headers=mobile_headers) as response:
                 if response.status == 200:
                     html = await response.text()
                     
@@ -230,6 +246,8 @@ class KuaishouDownloader:
     async def download_video_direct(self, video_url: str, download_dir: str, quality: str = 'best') -> Dict:
         """Download video directly from URL"""
         try:
+            session = await self.get_session()
+            
             headers = {
                 'User-Agent': random.choice(self.user_agents),
                 'Accept': 'video/mp4,video/webm,video/*;q=0.9,*/*;q=0.8',
@@ -240,7 +258,7 @@ class KuaishouDownloader:
                 'Origin': 'https://www.kuaishou.com'
             }
             
-            async with self.session.get(video_url, headers=headers) as response:
+            async with session.get(video_url, headers=headers) as response:
                 if response.status == 200:
                     # Generate filename
                     filename = f"{download_dir}/video_{int(time.time())}.mp4"
@@ -265,40 +283,6 @@ class KuaishouDownloader:
         except Exception as e:
             logger.error(f"Direct download error: {e}")
             return {'success': False, 'error': f'Download error: {str(e)}'}
-
-    async def get_video_info(self, url: str) -> Dict:
-        """Main method to get video information using multiple approaches"""
-        max_retries = 3
-        
-        for attempt in range(max_retries):
-            try:
-                logger.info(f"Attempt {attempt + 1} to get video info")
-                
-                # Try API method first
-                api_result = await self.get_video_info_api(url)
-                if api_result.get('success'):
-                    return api_result
-                
-                # Try web scraping method
-                scrape_result = await self.get_video_info_selenium_method(url)
-                if scrape_result.get('success'):
-                    return scrape_result
-                
-                # Try yt-dlp as last resort with different configurations
-                if attempt == 1:
-                    ydl_result = await self.get_video_info_ytdlp(url)
-                    if ydl_result.get('success'):
-                        return ydl_result
-                
-                if attempt < max_retries - 1:
-                    await asyncio.sleep(5)
-                    
-            except Exception as e:
-                logger.error(f"Error in get_video_info attempt {attempt + 1}: {e}")
-                if attempt < max_retries - 1:
-                    await asyncio.sleep(5)
-        
-        return {'success': False, 'error': 'All methods failed to extract video information'}
 
     async def get_video_info_ytdlp(self, url: str) -> Dict:
         """Fallback method using yt-dlp with enhanced configuration"""
@@ -350,6 +334,40 @@ class KuaishouDownloader:
             logger.error(f"yt-dlp error: {e}")
             return {'success': False, 'error': f'yt-dlp error: {str(e)}'}
 
+    async def get_video_info(self, url: str) -> Dict:
+        """Main method to get video information using multiple approaches"""
+        max_retries = 3
+        
+        for attempt in range(max_retries):
+            try:
+                logger.info(f"Attempt {attempt + 1} to get video info")
+                
+                # Try API method first
+                api_result = await self.get_video_info_api(url)
+                if api_result.get('success'):
+                    return api_result
+                
+                # Try web scraping method
+                scrape_result = await self.get_video_info_selenium_method(url)
+                if scrape_result.get('success'):
+                    return scrape_result
+                
+                # Try yt-dlp as last resort with different configurations
+                if attempt == 1:
+                    ydl_result = await self.get_video_info_ytdlp(url)
+                    if ydl_result.get('success'):
+                        return ydl_result
+                
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(5)
+                    
+            except Exception as e:
+                logger.error(f"Error in get_video_info attempt {attempt + 1}: {e}")
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(5)
+        
+        return {'success': False, 'error': 'All methods failed to extract video information'}
+
     async def download_video(self, url: str, quality: str = 'best') -> Dict:
         """Main download method"""
         download_id = str(uuid.uuid4())[:8]
@@ -391,7 +409,7 @@ class KuaishouDownloader:
                 shutil.rmtree(download_dir, ignore_errors=True)
             return {'success': False, 'error': f'Download failed: {str(e)}'}
 
-# Initialize downloader
+# Initialize downloader - ab session ko lazy initialize karenge
 downloader = KuaishouDownloader()
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -776,7 +794,7 @@ async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def on_shutdown():
     """Cleanup on shutdown"""
-    await downloader.session.close()
+    await downloader.close_session()
 
 def main():
     """Start the bot."""
