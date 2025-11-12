@@ -792,7 +792,7 @@ async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logger.error(f"Error in error handler: {e}")
 
-async def on_shutdown():
+async def on_shutdown(app: Application):
     """Cleanup on shutdown"""
     await downloader.close_session()
 
@@ -828,9 +828,6 @@ def main():
     # Add error handler
     application.add_error_handler(error_handler)
     
-    # Add shutdown handler
-    application.post_shutdown(on_shutdown)
-    
     # Start the Bot
     logger.info("🤖 Advanced Kuaishou Video Downloader Bot Starting...")
     print("=" * 50)
@@ -841,7 +838,14 @@ def main():
     print("🌐 Ready to receive requests...")
     print("=" * 50)
     
-    application.run_polling(drop_pending_updates=True)
+    # Run the bot with shutdown handler
+    try:
+        application.run_polling(drop_pending_updates=True)
+    except KeyboardInterrupt:
+        logger.info("Bot stopped by user")
+    finally:
+        # Manual cleanup on shutdown
+        asyncio.run(on_shutdown(application))
 
 if __name__ == '__main__':
     main()
