@@ -44,8 +44,11 @@ class KuaishouDownloader:
             'Mozilla/5.0 (Linux; Android 13; SM-G998B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/112.0.0.0 Mobile Safari/537.36',
             'Mozilla/5.0 (Linux; Android 12; SM-G973F) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/112.0.0.0 Mobile Safari/537.36',
             'Mozilla/5.0 (iPhone; CPU iPhone OS 16_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.5 Mobile/15E148 Safari/604.1',
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
         ]
         
+        # Enhanced yt-dlp options for Kuaishou
         self.ydl_opts = {
             'format': 'best[height<=1080]',
             'outtmpl': 'downloads/%(title).100s.%(ext)s',
@@ -54,11 +57,34 @@ class KuaishouDownloader:
             'writethumbnail': False,
             'embedthumbnail': False,
             'consoletitle': False,
-            'retries': 10,
-            'fragment_retries': 10,
+            'retries': 15,
+            'fragment_retries': 15,
             'skip_unavailable_fragments': True,
             'continuedl': True,
             'no_check_certificate': True,
+            'extract_flat': False,
+            'ignoreerrors': False,
+            'socket_timeout': 30,
+            'extractor_args': {
+                'kuaishou': {
+                    'referer': 'https://www.kuaishou.com',
+                    'headers': {
+                        'User-Agent': random.choice(self.user_agents),
+                        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
+                        'Accept-Language': 'en-US,en;q=0.9,zh-CN;q=0.8,zh;q=0.7',
+                        'Accept-Encoding': 'gzip, deflate, br',
+                        'Cache-Control': 'no-cache',
+                        'Connection': 'keep-alive',
+                        'Upgrade-Insecure-Requests': '1',
+                        'Sec-Fetch-Dest': 'document',
+                        'Sec-Fetch-Mode': 'navigate',
+                        'Sec-Fetch-Site': 'none',
+                        'Sec-Fetch-User': '?1',
+                        'DNT': '1',
+                        'Referer': 'https://www.kuaishou.com/'
+                    }
+                }
+            },
             'http_headers': {
                 'User-Agent': random.choice(self.user_agents),
                 'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
@@ -72,32 +98,43 @@ class KuaishouDownloader:
                 'Sec-Fetch-Site': 'none',
                 'Sec-Fetch-User': '?1',
                 'DNT': '1',
+                'Referer': 'https://www.kuaishou.com/'
             }
         }
 
     def clean_kuaishou_url(self, url: str) -> str:
-        """Clean Kuaishou URL by removing tracking parameters"""
+        """Clean and normalize Kuaishou URL"""
         try:
+            # Handle ksy:// protocol links
+            if url.startswith('ksy://'):
+                # Convert ksy:// to https://v.kuaishou.com/
+                photo_id = url.replace('ksy://', '').split('/')[-1]
+                return f"https://v.kuaishou.com/{photo_id}"
+            
             parsed = urlparse(url)
             
-            # Keep only essential parameters for Kuaishou
-            essential_params = ['photoId', 'fid', 'userId', 'shareObjectId']
-            query_params = parse_qs(parsed.query)
-            cleaned_params = {}
+            # Extract photoId from various Kuaishou URL formats
+            path_parts = parsed.path.split('/')
+            photo_id = None
             
-            for param in essential_params:
-                if param in query_params:
-                    cleaned_params[param] = query_params[param][0]
+            # Handle v.kuaishou.com/photoId format
+            if 'v.kuaishou.com' in parsed.netloc and path_parts:
+                photo_id = path_parts[-1] if path_parts[-1] else path_parts[-2]
             
-            # Reconstruct URL without tracking parameters
-            if cleaned_params:
-                new_query = '&'.join([f"{k}={v}" for k, v in cleaned_params.items()])
-                cleaned_url = f"{parsed.scheme}://{parsed.netloc}{parsed.path}?{new_query}"
-            else:
-                cleaned_url = f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
+            # Handle www.kuaishou.com/short-video format  
+            elif 'www.kuaishou.com' in parsed.netloc:
+                for part in path_parts:
+                    if len(part) > 5 and not part.startswith('?'):
+                        photo_id = part
+                        break
             
-            logger.info(f"Cleaned URL: {cleaned_url}")
-            return cleaned_url
+            # If we found a photoId, construct clean URL
+            if photo_id and len(photo_id) > 5:
+                clean_url = f"https://v.kuaishou.com/{photo_id}"
+                logger.info(f"Cleaned URL: {url} -> {clean_url}")
+                return clean_url
+            
+            return url
             
         except Exception as e:
             logger.error(f"URL cleaning error: {e}")
@@ -105,7 +142,7 @@ class KuaishouDownloader:
 
     def get_video_info(self, url: str) -> Dict:
         """Get video information without downloading"""
-        max_retries = 3
+        max_retries = 5
         cleaned_url = self.clean_kuaishou_url(url)
         
         for attempt in range(max_retries):
@@ -118,14 +155,25 @@ class KuaishouDownloader:
                     'quiet': True,
                     'no_warnings': False,
                     'http_headers': current_headers,
-                    'retries': 3,
-                    'fragment_retries': 3,
+                    'retries': 5,
+                    'fragment_retries': 5,
                     'skip_unavailable_fragments': True,
                     'no_check_certificate': True,
+                    'ignoreerrors': False,
+                    'socket_timeout': 30,
+                    'extractor_args': {
+                        'kuaishou': {
+                            'referer': 'https://www.kuaishou.com',
+                            'headers': current_headers
+                        }
+                    }
                 }
                 
                 with yt_dlp.YoutubeDL(ydl_info_opts) as ydl:
                     info = ydl.extract_info(cleaned_url, download=False)
+                    
+                    if not info:
+                        raise yt_dlp.utils.DownloadError("No video info extracted")
                     
                     # If we get here, the video info was successfully extracted
                     return {
@@ -137,40 +185,52 @@ class KuaishouDownloader:
                         'uploader': info.get('uploader', 'Unknown'),
                         'formats': info.get('formats', []),
                         'description': info.get('description', '')[:500],
-                        'url': cleaned_url
+                        'url': cleaned_url,
+                        'original_url': url
                     }
                     
             except yt_dlp.utils.DownloadError as e:
                 logger.error(f"DownloadError in video info (attempt {attempt + 1}): {str(e)}")
-                if "Unsupported URL" in str(e):
-                    # Try with original URL if cleaned URL fails
-                    if attempt == 0 and cleaned_url != url:
-                        logger.info("Trying with original URL...")
-                        continue
+                
+                # Try different strategies
+                if attempt == 1 and cleaned_url != url:
+                    logger.info("Trying with original URL...")
+                    cleaned_url = url
+                    continue
                     
-                    # Try with mobile user agent
-                    if attempt == 1:
-                        logger.info("Trying with mobile user agent...")
-                        mobile_agents = [
-                            'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1',
-                            'Mozilla/5.0 (Linux; Android 13; SM-G991B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/112.0.0.0 Mobile Safari/537.36'
-                        ]
-                        current_headers['User-Agent'] = random.choice(mobile_agents)
-                        continue
+                if attempt == 2:
+                    logger.info("Trying with mobile user agent...")
+                    mobile_agents = [
+                        'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1',
+                        'Mozilla/5.0 (Linux; Android 13; SM-G991B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/112.0.0.0 Mobile Safari/537.36'
+                    ]
+                    self.ydl_opts['http_headers']['User-Agent'] = random.choice(mobile_agents)
+                    continue
+                
+                if attempt == 3:
+                    logger.info("Trying with desktop user agent...")
+                    desktop_agents = [
+                        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+                        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+                    ]
+                    self.ydl_opts['http_headers']['User-Agent'] = random.choice(desktop_agents)
+                    continue
                 
                 if attempt < max_retries - 1:
-                    wait_time = (attempt + 1) * 3
+                    wait_time = (attempt + 1) * 5
+                    logger.info(f"Waiting {wait_time} seconds before retry...")
                     time.sleep(wait_time)
                     continue
-                return {'success': False, 'error': str(e)}
+                    
+                return {'success': False, 'error': f"Download failed after {max_retries} attempts: {str(e)}"}
                 
             except Exception as e:
                 logger.error(f"Unexpected error in video info (attempt {attempt + 1}): {e}")
                 if attempt < max_retries - 1:
-                    wait_time = (attempt + 1) * 3
+                    wait_time = (attempt + 1) * 5
                     time.sleep(wait_time)
                     continue
-                return {'success': False, 'error': str(e)}
+                return {'success': False, 'error': f"Unexpected error: {str(e)}"}
     
     def download_video(self, url: str, quality: str = 'best') -> Dict:
         """Download video with specified quality"""
@@ -194,17 +254,26 @@ class KuaishouDownloader:
         self.ydl_opts['outtmpl'] = f'{download_dir}/%(title).100s.%(ext)s'
         self.ydl_opts['http_headers']['User-Agent'] = random.choice(self.user_agents)
         
-        max_retries = 3
+        max_retries = 5
         cleaned_url = self.clean_kuaishou_url(url)
         
         for attempt in range(max_retries):
             try:
                 with yt_dlp.YoutubeDL(self.ydl_opts) as ydl:
                     info = ydl.extract_info(cleaned_url, download=True)
+                    
+                    if not info:
+                        raise Exception("No video info available for download")
+                    
                     filename = ydl.prepare_filename(info)
                     
-                    # Check file size
-                    file_size = os.path.getsize(filename) if os.path.exists(filename) else 0
+                    # Check if file exists and has content
+                    if not os.path.exists(filename):
+                        raise Exception("Downloaded file not found")
+                    
+                    file_size = os.path.getsize(filename)
+                    if file_size == 0:
+                        raise Exception("Downloaded file is empty")
                     
                     return {
                         'success': True,
@@ -224,7 +293,8 @@ class KuaishouDownloader:
                     shutil.rmtree(download_dir, ignore_errors=True)
                 
                 if attempt < max_retries - 1:
-                    wait_time = (attempt + 1) * 5
+                    wait_time = (attempt + 1) * 8
+                    logger.info(f"Waiting {wait_time} seconds before download retry...")
                     time.sleep(wait_time)
                     
                     # Try with original URL if cleaned URL fails
@@ -233,7 +303,7 @@ class KuaishouDownloader:
                         cleaned_url = url
                     continue
                     
-                return {'success': False, 'error': str(e)}
+                return {'success': False, 'error': f"Download failed after {max_retries} attempts: {str(e)}"}
 
 # Initialize downloader
 downloader = KuaishouDownloader()
@@ -408,14 +478,26 @@ def is_valid_kuaishou_url(url: str) -> bool:
         r'https?://v\.kuaishou\.com/\w+',
         r'https?://www\.kuaishou\.com/\w+',
         r'ksy://\w+',
-        r'kuaishou\.com/\w+',
-        r'kuaishouapp\.com/\w+'
+        r'https?://kuaishou\.com/\w+',
+        r'https?://kuaishouapp\.com/\w+',
+        r'https?://c\.kuaishou\.com/\w+',
+        r'https?://api\.kuaishouzt\.com/\w+',
+        r'v\.kuaishou\.com/\w+',
+        r'www\.kuaishou\.com/\w+'
     ]
     
-    url = url.strip()
+    url = url.strip().lower()
+    
+    # Basic check for kuaishou domains
+    kuaishou_domains = ['kuaishou.com', 'kuaishouapp.com', 'ksy://']
+    if any(domain in url for domain in kuaishou_domains):
+        return True
+    
+    # Regex pattern matching
     for pattern in kuaishou_patterns:
         if re.match(pattern, url, re.IGNORECASE):
             return True
+            
     return False
 
 async def cleanup_downloads():
@@ -458,7 +540,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "📝 **Examples of Valid Links:**\n"
             "• `https://v.kuaishou.com/KybGvmoV`\n"
             "• `v.kuaishou.com/ABC123`\n"
-            "• `ksy://video123`\n\n"
+            "• `ksy://video123`\n"
+            "• `www.kuaishou.com/short-video`\n\n"
             "Kuaishou app mein share button se 'Copy Link' karein."
         )
         return
@@ -482,7 +565,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not video_info.get('success'):
             error_msg = video_info.get('error', 'Unknown error')
             
-            if 'Unsupported URL' in error_msg:
+            if 'Unsupported URL' in error_msg or 'Private video' in error_msg:
                 await processing_msg.edit_text(
                     "❌ **Kuaishou Blocking Detected!**\n\n"
                     "Kuaishou ne is link ko temporarily block kar diya hai.\n\n"
@@ -584,15 +667,21 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
     except Exception as e:
         logger.error(f"Unexpected error: {e}")
-        await processing_msg.edit_text(
-            "❌ **Unexpected Error Occurred!**\n\n"
-            "System ne unexpected error report kiya hai.\n\n"
-            "Kripya:\n"
-            "• Thodi der wait karein\n"
-            "• Phir se try karein\n"
-            "• Agar problem continue ho to different link try karein\n\n"
-            "We're working to fix this automatically."
-        )
+        try:
+            await processing_msg.edit_text(
+                "❌ **Unexpected Error Occurred!**\n\n"
+                "System ne unexpected error report kiya hai.\n\n"
+                "Kripya:\n"
+                "• Thodi der wait karein\n"
+                "• Phir se try karein\n"
+                "• Agar problem continue ho to different link try karein\n\n"
+                "We're working to fix this automatically."
+            )
+        except:
+            await update.message.reply_text(
+                "❌ **Unexpected Error Occurred!**\n\n"
+                "Please try again with a different link."
+            )
 
 async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle errors in the telegram bot."""
