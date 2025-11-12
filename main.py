@@ -42,67 +42,13 @@ class KuaishouDownloader:
             'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1',
             'Mozilla/5.0 (Linux; Android 13; SM-G991B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/112.0.0.0 Mobile Safari/537.36',
             'Mozilla/5.0 (Linux; Android 13; SM-G998B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/112.0.0.0 Mobile Safari/537.36',
-            'Mozilla/5.0 (Linux; Android 12; SM-G973F) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/112.0.0.0 Mobile Safari/537.36',
-            'Mozilla/5.0 (iPhone; CPU iPhone OS 16_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.5 Mobile/15E148 Safari/604.1',
-            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
             'KSYVideoSDK/1.0.0 (iPhone; iOS 16.6; Scale/3.00)',
-            'Mozilla/5.0 (Linux; Android 10; VOG-L29) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.120 Mobile Safari/537.36'
+            'Mozilla/5.0 (Linux; Android 10; VOG-L29) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.120 Mobile Safari/537.36',
+            'Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 Kuaishou(8.9.10)',
+            'Mozilla/5.0 (Linux; U; Android 11; en-US; SM-A205F Build/RP1A.200720.012) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/78.0.3904.108 UCBrowser/13.1.0.1300 Mobile Safari/537.36'
         ]
         
-        # Enhanced yt-dlp options for Kuaishou with mobile emulation
-        self.ydl_opts = {
-            'format': 'best[height<=1080]',
-            'outtmpl': 'downloads/%(title).100s.%(ext)s',
-            'quiet': False,
-            'no_warnings': False,
-            'writethumbnail': False,
-            'embedthumbnail': False,
-            'consoletitle': False,
-            'retries': 10,
-            'fragment_retries': 10,
-            'skip_unavailable_fragments': True,
-            'continuedl': True,
-            'no_check_certificate': True,
-            'extract_flat': False,
-            'ignoreerrors': False,
-            'socket_timeout': 30,
-            'http_chunk_size': 10485760,
-            'extractor_args': {
-                'generic': {
-                    'headers': {
-                        'User-Agent': random.choice(self.user_agents),
-                        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
-                        'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
-                        'Accept-Encoding': 'gzip, deflate, br',
-                        'Cache-Control': 'no-cache',
-                        'Connection': 'keep-alive',
-                        'Upgrade-Insecure-Requests': '1',
-                        'Sec-Fetch-Dest': 'document',
-                        'Sec-Fetch-Mode': 'navigate',
-                        'Sec-Fetch-Site': 'none',
-                        'Sec-Fetch-User': '?1',
-                        'DNT': '1',
-                        'Referer': 'https://www.kuaishou.com/'
-                    }
-                }
-            },
-            'http_headers': {
-                'User-Agent': random.choice(self.user_agents),
-                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
-                'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
-                'Accept-Encoding': 'gzip, deflate, br',
-                'Cache-Control': 'no-cache',
-                'Connection': 'keep-alive',
-                'Upgrade-Insecure-Requests': '1',
-                'Sec-Fetch-Dest': 'document',
-                'Sec-Fetch-Mode': 'navigate',
-                'Sec-Fetch-Site': 'none',
-                'Sec-Fetch-User': '?1',
-                'DNT': '1',
-                'Referer': 'https://www.kuaishou.com/'
-            }
-        }
+        self.session = aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=30))
 
     def extract_photo_id(self, url: str) -> str:
         """Extract photo ID from various Kuaishou URL formats"""
@@ -123,12 +69,12 @@ class KuaishouDownloader:
                 match = re.search(r'/short-video/([^/?]+)', url)
                 if match:
                     return match.group(1)
-                
-                # Extract photoId from query parameters
-                parsed = urlparse(url)
-                query_params = parse_qs(parsed.query)
-                if 'photoId' in query_params:
-                    return query_params['photoId'][0]
+            
+            # Extract photoId from query parameters
+            parsed = urlparse(url)
+            query_params = parse_qs(parsed.query)
+            if 'photoId' in query_params:
+                return query_params['photoId'][0]
             
             # Extract from any Kuaishou URL
             patterns = [
@@ -142,7 +88,7 @@ class KuaishouDownloader:
                 match = re.search(pattern, url)
                 if match:
                     photo_id = match.group(1)
-                    if len(photo_id) >= 6:  # Valid photo IDs are usually longer
+                    if len(photo_id) >= 6:
                         return photo_id
             
             return url.split('/')[-1].split('?')[0]
@@ -151,59 +97,242 @@ class KuaishouDownloader:
             logger.error(f"Error extracting photo ID: {e}")
             return url.split('/')[-1].split('?')[0]
 
-    def clean_kuaishou_url(self, url: str) -> str:
-        """Clean and normalize Kuaishou URL to v.kuaishou.com format"""
+    async def get_video_info_api(self, url: str) -> Dict:
+        """Get video information using direct API calls"""
         try:
-            # Extract the photo ID
             photo_id = self.extract_photo_id(url)
+            logger.info(f"Extracted photo ID: {photo_id}")
             
-            # Construct clean v.kuaishou.com URL
-            clean_url = f"https://v.kuaishou.com/{photo_id}"
-            logger.info(f"Cleaned URL: {url} -> {clean_url}")
-            return clean_url
+            # Method 1: Try mobile API endpoint
+            api_url = f"https://v.m.chenzhongtech.com/rest/wd/photo/info?photoId={photo_id}"
+            
+            headers = {
+                'User-Agent': random.choice(self.user_agents),
+                'Accept': 'application/json, text/plain, */*',
+                'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+                'Accept-Encoding': 'gzip, deflate, br',
+                'Referer': 'https://www.kuaishou.com/',
+                'Origin': 'https://www.kuaishou.com',
+                'Sec-Fetch-Dest': 'empty',
+                'Sec-Fetch-Mode': 'cors',
+                'Sec-Fetch-Site': 'same-site'
+            }
+            
+            async with self.session.get(api_url, headers=headers) as response:
+                if response.status == 200:
+                    data = await response.json()
+                    if data.get('data'):
+                        video_info = data['data']
+                        return {
+                            'success': True,
+                            'title': video_info.get('caption', 'Kuaishou Video'),
+                            'duration': video_info.get('duration', 0) // 1000,
+                            'thumbnail': video_info.get('coverUrl', ''),
+                            'view_count': video_info.get('viewCount', 0),
+                            'uploader': video_info.get('userName', 'Unknown'),
+                            'video_url': video_info.get('photoUrl', ''),
+                            'photo_id': photo_id
+                        }
+            
+            # Method 2: Try alternative API
+            alt_api_url = f"https://api.ksycloud.com/photo/info?photoId={photo_id}"
+            async with self.session.get(alt_api_url, headers=headers) as response:
+                if response.status == 200:
+                    data = await response.json()
+                    if data.get('data'):
+                        video_info = data['data']
+                        return {
+                            'success': True,
+                            'title': video_info.get('caption', 'Kuaishou Video'),
+                            'duration': video_info.get('duration', 0) // 1000,
+                            'thumbnail': video_info.get('coverUrl', ''),
+                            'view_count': video_info.get('viewCount', 0),
+                            'uploader': video_info.get('userName', 'Unknown'),
+                            'video_url': video_info.get('photoUrl', ''),
+                            'photo_id': photo_id
+                        }
+            
+            return {'success': False, 'error': 'API methods failed'}
             
         except Exception as e:
-            logger.error(f"URL cleaning error: {e}")
-            return url
+            logger.error(f"API error: {e}")
+            return {'success': False, 'error': f'API error: {str(e)}'}
 
-    def get_video_info(self, url: str) -> Dict:
-        """Get video information without downloading"""
-        max_retries = 5
-        cleaned_url = self.clean_kuaishou_url(url)
+    async def get_video_info_selenium_method(self, url: str) -> Dict:
+        """Alternative method using web scraping simulation"""
+        try:
+            photo_id = self.extract_photo_id(url)
+            
+            # Simulate mobile app request
+            mobile_headers = {
+                'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                'Accept-Language': 'zh-CN,zh;q=0.9',
+                'Accept-Encoding': 'gzip, deflate, br',
+                'Connection': 'keep-alive',
+                'Upgrade-Insecure-Requests': '1',
+                'Sec-Fetch-Dest': 'document',
+                'Sec-Fetch-Mode': 'navigate',
+                'Sec-Fetch-Site': 'none',
+                'Cache-Control': 'max-age=0'
+            }
+            
+            # Try to get page content
+            async with self.session.get(url, headers=mobile_headers) as response:
+                if response.status == 200:
+                    html = await response.text()
+                    
+                    # Try to extract video info from JSON-LD or meta tags
+                    json_ld_pattern = r'<script type="application/ld\+json">(.*?)</script>'
+                    matches = re.findall(json_ld_pattern, html, re.DOTALL)
+                    
+                    for match in matches:
+                        try:
+                            data = json.loads(match)
+                            if 'contentUrl' in data:
+                                return {
+                                    'success': True,
+                                    'title': data.get('name', 'Kuaishou Video'),
+                                    'duration': 0,
+                                    'thumbnail': data.get('thumbnailUrl', ''),
+                                    'view_count': 0,
+                                    'uploader': data.get('author', 'Unknown'),
+                                    'video_url': data.get('contentUrl', ''),
+                                    'photo_id': photo_id
+                                }
+                        except:
+                            continue
+                    
+                    # Try to extract from meta tags
+                    meta_pattern = r'<meta property="og:video:url" content="(.*?)"'
+                    video_match = re.search(meta_pattern, html)
+                    if video_match:
+                        title_pattern = r'<meta property="og:title" content="(.*?)"'
+                        title_match = re.search(title_pattern, html)
+                        
+                        return {
+                            'success': True,
+                            'title': title_match.group(1) if title_match else 'Kuaishou Video',
+                            'duration': 0,
+                            'thumbnail': '',
+                            'view_count': 0,
+                            'uploader': 'Unknown',
+                            'video_url': video_match.group(1),
+                            'photo_id': photo_id
+                        }
+            
+            return {'success': False, 'error': 'Web scraping failed'}
+            
+        except Exception as e:
+            logger.error(f"Selenium method error: {e}")
+            return {'success': False, 'error': f'Scraping error: {str(e)}'}
+
+    async def download_video_direct(self, video_url: str, download_dir: str, quality: str = 'best') -> Dict:
+        """Download video directly from URL"""
+        try:
+            headers = {
+                'User-Agent': random.choice(self.user_agents),
+                'Accept': 'video/mp4,video/webm,video/*;q=0.9,*/*;q=0.8',
+                'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+                'Accept-Encoding': 'identity',
+                'Range': 'bytes=0-',
+                'Referer': 'https://www.kuaishou.com/',
+                'Origin': 'https://www.kuaishou.com'
+            }
+            
+            async with self.session.get(video_url, headers=headers) as response:
+                if response.status == 200:
+                    # Generate filename
+                    filename = f"{download_dir}/video_{int(time.time())}.mp4"
+                    
+                    # Download content
+                    content = await response.read()
+                    
+                    with open(filename, 'wb') as f:
+                        f.write(content)
+                    
+                    file_size = os.path.getsize(filename)
+                    
+                    return {
+                        'success': True,
+                        'filename': filename,
+                        'file_size': file_size,
+                        'duration': 0
+                    }
+                else:
+                    return {'success': False, 'error': f'HTTP {response.status}'}
+                    
+        except Exception as e:
+            logger.error(f"Direct download error: {e}")
+            return {'success': False, 'error': f'Download error: {str(e)}'}
+
+    async def get_video_info(self, url: str) -> Dict:
+        """Main method to get video information using multiple approaches"""
+        max_retries = 3
         
         for attempt in range(max_retries):
             try:
-                # Rotate user agent for each attempt
-                current_headers = self.ydl_opts['http_headers'].copy()
-                current_headers['User-Agent'] = random.choice(self.user_agents)
+                logger.info(f"Attempt {attempt + 1} to get video info")
                 
-                ydl_info_opts = {
-                    'quiet': False,  # Set to False to see yt-dlp debug info
-                    'no_warnings': False,
-                    'http_headers': current_headers,
-                    'retries': 5,
-                    'fragment_retries': 5,
-                    'skip_unavailable_fragments': True,
-                    'no_check_certificate': True,
-                    'ignoreerrors': False,
-                    'socket_timeout': 30,
-                    'extract_flat': False,
-                    'extractor_args': {
-                        'generic': {
-                            'headers': current_headers
+                # Try API method first
+                api_result = await self.get_video_info_api(url)
+                if api_result.get('success'):
+                    return api_result
+                
+                # Try web scraping method
+                scrape_result = await self.get_video_info_selenium_method(url)
+                if scrape_result.get('success'):
+                    return scrape_result
+                
+                # Try yt-dlp as last resort with different configurations
+                if attempt == 1:
+                    ydl_result = await self.get_video_info_ytdlp(url)
+                    if ydl_result.get('success'):
+                        return ydl_result
+                
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(5)
+                    
+            except Exception as e:
+                logger.error(f"Error in get_video_info attempt {attempt + 1}: {e}")
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(5)
+        
+        return {'success': False, 'error': 'All methods failed to extract video information'}
+
+    async def get_video_info_ytdlp(self, url: str) -> Dict:
+        """Fallback method using yt-dlp with enhanced configuration"""
+        try:
+            ydl_opts = {
+                'quiet': True,
+                'no_warnings': False,
+                'extract_flat': False,
+                'ignoreerrors': True,
+                'socket_timeout': 30,
+                'extractor_args': {
+                    'generic': {
+                        'headers': {
+                            'User-Agent': random.choice(self.user_agents),
+                            'Accept': '*/*',
+                            'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+                            'Referer': 'https://www.kuaishou.com/',
+                            'Origin': 'https://www.kuaishou.com'
                         }
                     }
+                },
+                'http_headers': {
+                    'User-Agent': random.choice(self.user_agents),
+                    'Accept': '*/*',
+                    'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+                    'Referer': 'https://www.kuaishou.com/',
+                    'Origin': 'https://www.kuaishou.com'
                 }
+            }
+            
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(url, download=False)
                 
-                logger.info(f"Attempt {attempt + 1}: Extracting info from {cleaned_url}")
-                
-                with yt_dlp.YoutubeDL(ydl_info_opts) as ydl:
-                    info = ydl.extract_info(cleaned_url, download=False)
-                    
-                    if not info:
-                        raise yt_dlp.utils.DownloadError("No video info extracted")
-                    
-                    # If we get here, the video info was successfully extracted
+                if info:
                     return {
                         'success': True,
                         'title': info.get('title', 'Kuaishou Video'),
@@ -211,147 +340,56 @@ class KuaishouDownloader:
                         'thumbnail': info.get('thumbnail', ''),
                         'view_count': info.get('view_count', 0),
                         'uploader': info.get('uploader', 'Unknown'),
-                        'formats': info.get('formats', []),
-                        'description': info.get('description', '')[:500],
-                        'url': cleaned_url,
-                        'original_url': url
+                        'video_url': info.get('url', ''),
+                        'photo_id': self.extract_photo_id(url)
                     }
-                    
-            except yt_dlp.utils.DownloadError as e:
-                logger.error(f"DownloadError in video info (attempt {attempt + 1}): {str(e)}")
                 
-                # Try different strategies for each attempt
-                if attempt == 0 and cleaned_url != url:
-                    logger.info("Trying with original URL...")
-                    cleaned_url = url
-                    continue
-                    
-                if attempt == 1:
-                    logger.info("Trying with mobile user agent...")
-                    mobile_agents = [
-                        'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1',
-                        'KSYVideoSDK/1.0.0 (iPhone; iOS 16.6; Scale/3.00)'
-                    ]
-                    self.ydl_opts['http_headers']['User-Agent'] = random.choice(mobile_agents)
-                    continue
-                
-                if attempt == 2:
-                    logger.info("Trying with different URL format...")
-                    # Try to extract direct video ID and construct different URL
-                    photo_id = self.extract_photo_id(url)
-                    cleaned_url = f"https://www.kuaishou.com/short-video/{photo_id}"
-                    continue
-                
-                if attempt == 3:
-                    logger.info("Trying with desktop user agent...")
-                    desktop_agents = [
-                        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-                        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-                    ]
-                    self.ydl_opts['http_headers']['User-Agent'] = random.choice(desktop_agents)
-                    continue
-                
-                if attempt < max_retries - 1:
-                    wait_time = (attempt + 1) * 5
-                    logger.info(f"Waiting {wait_time} seconds before retry...")
-                    time.sleep(wait_time)
-                    continue
-                    
-                return {
-                    'success': False, 
-                    'error': f"Video extraction failed after {max_retries} attempts. Kuaishou might be blocking the request.",
-                    'debug_info': f"URL: {url}, Cleaned URL: {cleaned_url}"
-                }
-                
-            except Exception as e:
-                logger.error(f"Unexpected error in video info (attempt {attempt + 1}): {e}")
-                if attempt < max_retries - 1:
-                    wait_time = (attempt + 1) * 5
-                    time.sleep(wait_time)
-                    continue
-                return {
-                    'success': False, 
-                    'error': f"Unexpected error: {str(e)}",
-                    'debug_info': f"URL: {url}"
-                }
-    
-    def download_video(self, url: str, quality: str = 'best') -> Dict:
-        """Download video with specified quality"""
+            return {'success': False, 'error': 'yt-dlp extraction failed'}
+            
+        except Exception as e:
+            logger.error(f"yt-dlp error: {e}")
+            return {'success': False, 'error': f'yt-dlp error: {str(e)}'}
+
+    async def download_video(self, url: str, quality: str = 'best') -> Dict:
+        """Main download method"""
         download_id = str(uuid.uuid4())[:8]
         download_dir = f"downloads/{download_id}"
         os.makedirs(download_dir, exist_ok=True)
         
-        # Update format based on quality preference
-        if quality == '1080p':
-            format_spec = 'best[height<=1080]'
-        elif quality == '720p':
-            format_spec = 'best[height<=720]'
-        elif quality == '480p':
-            format_spec = 'best[height<=480]'
-        elif quality == '360p':
-            format_spec = 'best[height<=360]'
-        else:
-            format_spec = 'best'
-        
-        self.ydl_opts['format'] = format_spec
-        self.ydl_opts['outtmpl'] = f'{download_dir}/%(title).100s.%(ext)s'
-        self.ydl_opts['http_headers']['User-Agent'] = random.choice(self.user_agents)
-        
-        max_retries = 5
-        cleaned_url = self.clean_kuaishou_url(url)
-        
-        for attempt in range(max_retries):
-            try:
-                logger.info(f"Download attempt {attempt + 1} for {cleaned_url}")
+        try:
+            # Get video information first
+            video_info = await self.get_video_info(url)
+            if not video_info.get('success'):
+                return {'success': False, 'error': video_info.get('error', 'Unknown error')}
+            
+            # Download the video
+            if video_info.get('video_url'):
+                download_result = await self.download_video_direct(
+                    video_info['video_url'], 
+                    download_dir, 
+                    quality
+                )
                 
-                with yt_dlp.YoutubeDL(self.ydl_opts) as ydl:
-                    info = ydl.extract_info(cleaned_url, download=True)
-                    
-                    if not info:
-                        raise Exception("No video info available for download")
-                    
-                    filename = ydl.prepare_filename(info)
-                    
-                    # Check if file exists and has content
-                    if not os.path.exists(filename):
-                        raise Exception("Downloaded file not found")
-                    
-                    file_size = os.path.getsize(filename)
-                    if file_size == 0:
-                        raise Exception("Downloaded file is empty")
-                    
+                if download_result.get('success'):
                     return {
                         'success': True,
-                        'filename': filename,
-                        'title': info.get('title', 'Kuaishou Video'),
-                        'duration': info.get('duration', 0),
+                        'filename': download_result['filename'],
+                        'title': video_info['title'],
+                        'duration': video_info['duration'],
                         'quality': quality,
-                        'file_size': file_size,
-                        'download_id': download_id
+                        'file_size': download_result['file_size'],
+                        'download_id': download_id,
+                        'uploader': video_info['uploader']
                     }
-                    
-            except Exception as e:
-                logger.error(f"Download error (attempt {attempt + 1}): {e}")
-                
-                # Cleanup failed download directory
-                if os.path.exists(download_dir):
-                    shutil.rmtree(download_dir, ignore_errors=True)
-                
-                if attempt < max_retries - 1:
-                    wait_time = (attempt + 1) * 8
-                    logger.info(f"Waiting {wait_time} seconds before download retry...")
-                    time.sleep(wait_time)
-                    
-                    # Try with original URL if cleaned URL fails
-                    if attempt == 1 and cleaned_url != url:
-                        logger.info("Retrying with original URL...")
-                        cleaned_url = url
-                    continue
-                    
-                return {
-                    'success': False, 
-                    'error': f"Download failed after {max_retries} attempts: {str(e)}"
-                }
+            
+            return {'success': False, 'error': 'No video URL found for download'}
+            
+        except Exception as e:
+            logger.error(f"Download error: {e}")
+            # Cleanup on error
+            if os.path.exists(download_dir):
+                shutil.rmtree(download_dir, ignore_errors=True)
+            return {'success': False, 'error': f'Download failed: {str(e)}'}
 
 # Initialize downloader
 downloader = KuaishouDownloader()
@@ -528,6 +566,7 @@ def is_valid_kuaishou_url(url: str) -> bool:
         'kuaishou.com',
         'kuaishouapp.com',
         'c.kuaishou.com',
+        'v.m.chenzhongtech.com',
         'api.kuaishouzt.com'
     ]
     
@@ -609,31 +648,19 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "⚡ This may take a few seconds..."
         )
         
-        video_info = downloader.get_video_info(message_text)
+        video_info = await downloader.get_video_info(message_text)
         if not video_info.get('success'):
             error_msg = video_info.get('error', 'Unknown error')
             
-            # More specific error handling
-            if 'Unsupported URL' in error_msg or 'Private video' in error_msg or 'blocking' in error_msg.lower():
-                await processing_msg.edit_text(
-                    "❌ **Kuaishou Blocking Detected!**\n\n"
-                    "Kuaishou ne is link ko temporarily block kar diya hai.\n\n"
-                    "🔄 **Please Try:**\n"
-                    "• 5-10 minute wait karein\n"
-                    "• Different video ka link try karein\n"
-                    "• Koi aur Kuaishou video share karein\n\n"
-                    "⚠️ Yeh temporary issue hai, jald hi fix ho jayega."
-                )
-            else:
-                await processing_msg.edit_text(
-                    "❌ **Video Access Failed!**\n\n"
-                    f"Error: {error_msg}\n\n"
-                    "Kripya:\n"
-                    "• Different video ka link try karein\n"
-                    "• Thodi der baad try karein\n"
-                    "• Internet connection check karein\n"
-                    "• Koi simple Kuaishou link try karein"
-                )
+            await processing_msg.edit_text(
+                "❌ **Video Access Failed!**\n\n"
+                f"Error: {error_msg}\n\n"
+                "Kripya:\n"
+                "• Different video ka link try karein\n"
+                "• Thodi der baad try karein\n"
+                "• Internet connection check karein\n"
+                "• Koi simple Kuaishou link try karein"
+            )
             return
         
         # Step 2: Start download with user's preferred quality
@@ -648,7 +675,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         
         # Download video
-        download_result = downloader.download_video(message_text, user_quality)
+        download_result = await downloader.download_video(message_text, user_quality)
         
         if not download_result.get('success'):
             await processing_msg.edit_text(
@@ -675,7 +702,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"⏱ Duration: {download_result['duration']} seconds\n"
             f"🎯 Quality: {download_result['quality'].upper()}\n"
             f"📊 Size: {file_size_mb:.2f} MB\n"
-            f"👤 Uploader: {video_info['uploader']}\n"
+            f"👤 Uploader: {download_result.get('uploader', 'Unknown')}\n"
             f"🔗 @KuaishouDownloaderBot\n\n"
             f"⭐ Downloaded successfully!"
         )
@@ -747,6 +774,10 @@ async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logger.error(f"Error in error handler: {e}")
 
+async def on_shutdown():
+    """Cleanup on shutdown"""
+    await downloader.session.close()
+
 def main():
     """Start the bot."""
     if not BOT_TOKEN:
@@ -778,6 +809,9 @@ def main():
     
     # Add error handler
     application.add_error_handler(error_handler)
+    
+    # Add shutdown handler
+    application.post_shutdown(on_shutdown)
     
     # Start the Bot
     logger.info("🤖 Advanced Kuaishou Video Downloader Bot Starting...")
